@@ -45,53 +45,60 @@ body {
 }
 
 /* ────────────────────────────────────────────────────────────────────
- * Tree-menu leaves — wind sway when the cursor is near.
- * Pivot is at the stem (top-center of the leaf bbox).
- * Each leaf reads its resting tilt from CSS var --rest set inline.
- * Class .leaf-wind is toggled by JS based on cursor proximity.
+ * Tree-menu leaves — wind sway only on the leaf the cursor is actually on.
+ *
+ * Position + rest tilt live in the SVG transform attribute (most stable
+ * across browsers). The CSS `rotate` property is a SEPARATE transform
+ * that the browser combines with the SVG attribute, so the hover wobble
+ * adds a small extra rotation on top without disturbing the leaf's
+ * assigned (x, y) position.
+ *
+ * Pivot: the leaf body hangs from y=0 in local coords (the stem), so
+ * additional rotation around the local origin reads as the leaf swinging
+ * from its stem — exactly how a real leaf would catch a breeze.
  * ──────────────────────────────────────────────────────────────────── */
 .leaf {
-  rotate: var(--rest, 0deg);
   transform-box: fill-box;
   transform-origin: 50% 0%;
-  transition: rotate 0.7s ease-out;
+  transition: rotate 0.6s ease-out;
 }
 
+/* gentle ±3° sway — like a soft breeze, not a gust */
 @keyframes leaf-wind {
-  0%   { rotate: var(--rest, 0deg); }
-  18%  { rotate: calc(var(--rest, 0deg) + 11deg); }
-  34%  { rotate: calc(var(--rest, 0deg) - 7deg); }
-  52%  { rotate: calc(var(--rest, 0deg) + 6deg); }
-  68%  { rotate: calc(var(--rest, 0deg) - 4deg); }
-  84%  { rotate: calc(var(--rest, 0deg) + 2deg); }
-  100% { rotate: var(--rest, 0deg); }
+  0%, 100% { rotate: 0deg; }
+  25%      { rotate: 3deg; }
+  50%      { rotate: -2deg; }
+  75%      { rotate: 1.5deg; }
 }
 
-.leaf-wind {
-  animation: leaf-wind 1.6s ease-in-out infinite;
-  animation-delay: var(--wind-delay, 0s);
+.leaf:hover {
+  animation: leaf-wind 2.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .leaf-wind { animation: none; }
+  .leaf:hover { animation: none; }
 }
 
 /* ────────────────────────────────────────────────────────────────────
- * Article reader — page paper + corner-curl animation on turn.
- * Pure CSS: rotates the page slightly + a triangular "curl" gradient
- * sweeps across the corner so it reads like the corner peeled and laid
- * back down. Works for both directions; kept symmetric so the keyframes
- * don't blow up the bundle.
+ * Article reader — analog page flip.
+ *
+ * Stack of two pages (destination underneath, outgoing on top). The
+ * outgoing page hinges at one edge and rotates around the Y axis; once
+ * it crosses ~90° its backface is hidden and the destination beneath is
+ * fully revealed. Perspective lives on the PARENT (set inline) so all
+ * children share one 3D space, and the parent has overflow:visible so
+ * the rotated page is never clipped.
  * ──────────────────────────────────────────────────────────────────── */
 .page-paper {
   background:
     linear-gradient(135deg, #f7f0dc 0%, #efe5cb 92%, #d9c79f 100%);
   overflow: hidden;
-  transform-origin: center;
   position: relative;
+  /* backface-visibility intentionally NOT set here — base pages have no 3D
+   * context so applying it can render them invisible in some browsers.
+   * Applied below only to .page-flipping-* which actually rotate. */
 }
 
-/* faint paper grain */
 .page-paper::before {
   content: "";
   position: absolute;
@@ -102,101 +109,84 @@ body {
     radial-gradient(circle at 80% 70%, rgba(139, 90, 43, 0.05) 0, transparent 45%);
 }
 
-/* corner curl overlay — only visible during turn */
-.page-paper::after {
+/* soft shadow band on the rotating page — strengthens at mid-flip */
+.page-paper.flipping::after {
   content: "";
   position: absolute;
+  inset: 0;
   pointer-events: none;
-  width: 120px;
-  height: 120px;
+  background: linear-gradient(
+    to right,
+    rgba(43, 30, 18, 0.0) 0%,
+    rgba(43, 30, 18, 0.18) 100%
+  );
   opacity: 0;
-  background:
-    linear-gradient(135deg,
-      rgba(0, 0, 0, 0.0) 35%,
-      rgba(43, 30, 18, 0.35) 50%,
-      rgba(244, 236, 216, 0.95) 51%,
-      rgba(217, 199, 159, 0.7) 80%,
-      rgba(94, 58, 24, 0.2) 100%);
-  border-radius: 0 3px 0 0;
 }
 
-@keyframes page-turn-next {
-  0% {
-    transform: perspective(1400px) rotateY(0deg);
-    box-shadow: 0 30px 60px -25px rgba(43,30,18,0.55), 0 8px 20px -10px rgba(43,30,18,0.4);
-  }
-  35% {
-    transform: perspective(1400px) rotateY(-12deg) translateX(-8px);
-  }
-  60% {
-    transform: perspective(1400px) rotateY(-6deg) translateX(-4px);
-  }
-  100% {
-    transform: perspective(1400px) rotateY(0deg);
-  }
+/* perspective lives in the element's own transform so the parent doesn't
+ * need transform-style: preserve-3d (which can collapse parent sizing in
+ * some browsers when combined with aspect-ratio).
+ * Opacity fades alongside rotation so the page is gone before any backface
+ * could show. */
+@keyframes page-flip-next {
+  0%   { transform: perspective(2200px) rotateY(0deg);    opacity: 1; }
+  70%  {                                                  opacity: 1; }
+  100% { transform: perspective(2200px) rotateY(-178deg); opacity: 0; }
 }
 
-@keyframes page-turn-next-corner {
-  0%   { opacity: 0; top: 0; right: 0; transform: scale(0.4); }
-  20%  { opacity: 1; }
-  60%  { opacity: 1; top: -10px; right: -10px; transform: scale(1.05); }
-  100% { opacity: 0; top: 60%; right: 60%; transform: scale(0.3); }
+@keyframes page-flip-prev {
+  0%   { transform: perspective(2200px) rotateY(0deg);   opacity: 1; }
+  70%  {                                                 opacity: 1; }
+  100% { transform: perspective(2200px) rotateY(178deg); opacity: 0; }
 }
 
-@keyframes page-turn-prev {
-  0% {
-    transform: perspective(1400px) rotateY(0deg);
-  }
-  35% {
-    transform: perspective(1400px) rotateY(12deg) translateX(8px);
-  }
-  60% {
-    transform: perspective(1400px) rotateY(6deg) translateX(4px);
-  }
-  100% {
-    transform: perspective(1400px) rotateY(0deg);
-  }
+@keyframes page-flip-shadow {
+  0%   { opacity: 0; }
+  45%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 
-@keyframes page-turn-prev-corner {
-  0%   { opacity: 0; top: 0; left: 0; transform: scale(0.4); }
-  20%  { opacity: 1; }
-  60%  { opacity: 1; top: -10px; left: -10px; transform: scale(1.05); }
-  100% { opacity: 0; top: 60%; left: 60%; transform: scale(0.3); }
-}
-
-.page-turn-next {
-  animation: page-turn-next 0.7s ease-in-out;
+/* outgoing page flipped to the LEFT (next) — hinged on the LEFT edge */
+.page-flipping-next {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
   transform-origin: left center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  animation: page-flip-next 0.85s cubic-bezier(0.55, 0.05, 0.35, 1) forwards;
+  box-shadow:
+    0 30px 60px -25px rgba(43, 30, 18, 0.55),
+    0 8px 20px -10px rgba(43, 30, 18, 0.4);
 }
-.page-turn-next::after {
-  top: 0;
-  right: 0;
-  animation: page-turn-next-corner 0.7s ease-in-out;
+.page-flipping-next.flipping::after {
+  animation: page-flip-shadow 0.85s ease-in-out forwards;
 }
 
-.page-turn-prev {
-  animation: page-turn-prev 0.7s ease-in-out;
+/* outgoing page flipped to the RIGHT (prev) — hinged on the RIGHT edge */
+.page-flipping-prev {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
   transform-origin: right center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  animation: page-flip-prev 0.85s cubic-bezier(0.55, 0.05, 0.35, 1) forwards;
+  box-shadow:
+    0 30px 60px -25px rgba(43, 30, 18, 0.55),
+    0 8px 20px -10px rgba(43, 30, 18, 0.4);
 }
-.page-turn-prev::after {
-  top: 0;
-  left: 0;
-  background:
-    linear-gradient(225deg,
-      rgba(0, 0, 0, 0.0) 35%,
-      rgba(43, 30, 18, 0.35) 50%,
-      rgba(244, 236, 216, 0.95) 51%,
-      rgba(217, 199, 159, 0.7) 80%,
-      rgba(94, 58, 24, 0.2) 100%);
-  border-radius: 3px 0 0 0;
-  animation: page-turn-prev-corner 0.7s ease-in-out;
+.page-flipping-prev.flipping::after {
+  background: linear-gradient(
+    to left,
+    rgba(43, 30, 18, 0.0) 0%,
+    rgba(43, 30, 18, 0.18) 100%
+  );
+  animation: page-flip-shadow 0.85s ease-in-out forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-turn-next,
-  .page-turn-prev {
-    animation: none;
-  }
-  .page-paper::after { opacity: 0 !important; animation: none !important; }
+  .page-flipping-next,
+  .page-flipping-prev { animation: none; opacity: 0; }
+  .page-paper.flipping::after { animation: none !important; opacity: 0 !important; }
 }

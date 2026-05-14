@@ -111,8 +111,6 @@ export function TreeMenu() {
 }
 
 function Leaf({
-  ref,
-  index,
   x,
   y,
   sway,
@@ -122,8 +120,6 @@ function Leaf({
   label,
   onClick,
 }: {
-  ref?: (el: SVGGElement | null) => void;
-  index: number;
   x: number;
   y: number;
   sway: number;
@@ -135,25 +131,18 @@ function Leaf({
 }) {
   const gid = `tree-leaf-${label}`;
   const sid = `tree-leaf-shade-${label}`;
-  // stagger so the cluster doesn't sway in lockstep when wind hits
-  const windDelay = `${(index * 0.17) % 0.7}s`;
 
   return (
     <g
-      ref={ref}
-      // positioning only — rotation lives in CSS so .leaf-wind can drive it
-      transform={`translate(${x} ${y})`}
+      // SVG attribute pins the leaf at its (x, y) AND applies the rest tilt.
+      // This is the most browser-stable way to position SVG children — the
+      // CSS hover wobble (.leaf:hover) sits on top as an extra small rotation.
+      transform={`translate(${x} ${y}) rotate(${sway})`}
       className="leaf cursor-pointer"
       role="link"
       aria-label={label}
       onClick={onClick}
       tabIndex={0}
-      style={
-        {
-          "--rest": `${sway}deg`,
-          "--wind-delay": windDelay,
-        } as React.CSSProperties
-      }
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}

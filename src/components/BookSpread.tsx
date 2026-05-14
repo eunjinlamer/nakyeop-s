@@ -95,7 +95,9 @@ function Page({
       : "linear-gradient(to left, #f7f0dc 0%, #efe5cb 92%, #d9c79f 100%)";
 
   return (
-    <div className="relative" style={{ background: gradient }}>
+    // h-full so the grid cell's stretched height resolves cleanly down to
+    // any percentage-height children (the cover wrap needs h-full to work).
+    <div className="relative h-full" style={{ background: gradient }}>
       {/* horizontal text rules — very faint, like ruled paper */}
       <div
         aria-hidden

@@ -15,14 +15,19 @@ type Props = {
   next: Neighbor;
 };
 
-type TurnDir = "next" | "prev" | null;
+type TurnDir = "next" | "prev";
+type Outgoing = { page: number; dir: TurnDir } | null;
+
+const FLIP_MS = 850; // matches the CSS animation duration
 
 export function ArticleViewer({ article, prev, next }: Props) {
   const total = getTotalPages(article);
 
   // page index: 0 = cover, 1 = meta, 2..total-2 = body, total-1 = end
   const [page, setPage] = useState(0);
-  const [turning, setTurning] = useState<TurnDir>(null);
+  // snapshot of the page being flipped away — rendered on top of the
+  // destination page during the animation, then cleared.
+  const [outgoing, setOutgoing] = useState<Outgoing>(null);
   const [scrollMode, setScrollMode] = useState(false);
   const turnLock = useRef(false);
 
@@ -31,12 +36,11 @@ export function ArticleViewer({ article, prev, next }: Props) {
     setPage((p) => {
       if (p >= total - 1) return p;
       turnLock.current = true;
-      setTurning("next");
-      // animation length matches CSS keyframe (0.7s)
+      setOutgoing({ page: p, dir: "next" });
       window.setTimeout(() => {
-        setTurning(null);
+        setOutgoing(null);
         turnLock.current = false;
-      }, 700);
+      }, FLIP_MS);
       return p + 1;
     });
   }, [total]);
@@ -46,11 +50,11 @@ export function ArticleViewer({ article, prev, next }: Props) {
     setPage((p) => {
       if (p <= 0) return p;
       turnLock.current = true;
-      setTurning("prev");
+      setOutgoing({ page: p, dir: "prev" });
       window.setTimeout(() => {
-        setTurning(null);
+        setOutgoing(null);
         turnLock.current = false;
-      }, 700);
+      }, FLIP_MS);
       return p - 1;
     });
   }, []);
@@ -87,7 +91,7 @@ export function ArticleViewer({ article, prev, next }: Props) {
             article={article}
             page={page}
             total={total}
-            turning={turning}
+            outgoing={outgoing}
             prev={prev}
             next={next}
             onPrev={goPrev}
@@ -131,7 +135,7 @@ function TopBar({
         className="rounded-sm bg-paper-deep/70 px-3 py-1 text-xs tracking-[0.25em] text-ink-soft shadow-sm transition hover:bg-paper-deep hover:text-ink"
         aria-pressed={scrollMode}
       >
-        {scrollMode ? "책 모드" : "스크롤 모드"}
+        {scrollMode ? "책 모드로 읽기" : "스크롤 모드로 읽기"}
       </button>
     </div>
   );
@@ -144,7 +148,7 @@ function BookFrame({
   article,
   page,
   total,
-  turning,
+  outgoing,
   prev,
   next,
   onPrev,
@@ -154,7 +158,7 @@ function BookFrame({
   article: Article;
   page: number;
   total: number;
-  turning: TurnDir;
+  outgoing: Outgoing;
   prev: Neighbor;
   next: Neighbor;
   onPrev: () => void;
@@ -163,15 +167,6 @@ function BookFrame({
 }) {
   const atFirst = page <= 0;
   const atLast = page >= total - 1;
-
-  // class drives the CSS keyframe. Two variants so the curl direction matches
-  // the turn direction (next: top-right curls toward top-left; prev: top-left curls back).
-  const animClass =
-    turning === "next"
-      ? "page-turn-next"
-      : turning === "prev"
-        ? "page-turn-prev"
-        : "";
 
   return (
     <div className="relative mt-16 flex w-full max-w-[1200px] items-start justify-center">
@@ -190,19 +185,47 @@ function BookFrame({
         {/* bookmark clip on the top-right of the page */}
         <BookmarkClip page={page} />
 
-        {/* the page itself */}
-        <div
-          key={page} // re-mounts on page change so the CSS animation replays
-          className={`page-paper ${animClass} relative aspect-[3/4] w-full rounded-[3px] shadow-[0_30px_60px_-25px_rgba(43,30,18,0.55),0_8px_20px_-10px_rgba(43,30,18,0.4)]`}
-        >
-          <PageBody
-            article={article}
-            page={page}
-            total={total}
-            prev={prev}
-            next={next}
-            onJump={onJump}
-          />
+        {/* Page stack — same shape as the original (airplane-era) structure:
+         * the destination page lives in normal flow with an explicit size,
+         * giving the column a deterministic height that never collapses.
+         * The outgoing page (during a flip) is layered absolutely on top
+         * via .page-flipping-* and rotates away. */}
+        <div className="relative" style={{ width: 640, height: 853 }}>
+          {/* destination — key={page} forces a clean re-mount per page so
+           * the cover renders just like the airplane version did. */}
+          <div
+            key={page}
+            className="page-paper rounded-[3px] shadow-[0_30px_60px_-25px_rgba(43,30,18,0.55),0_8px_20px_-10px_rgba(43,30,18,0.4)]"
+            style={{ width: 640, height: 853 }}
+          >
+            <PageBody
+              article={article}
+              page={page}
+              total={total}
+              prev={prev}
+              next={next}
+              onJump={onJump}
+            />
+          </div>
+
+          {/* outgoing — absolute overlay (positioning supplied by
+           * .page-flipping-* in CSS) with the hinge-rotate animation */}
+          {outgoing && (
+            <div
+              key={`out-${outgoing.page}-${outgoing.dir}`}
+              className={`page-paper flipping rounded-[3px] page-flipping-${outgoing.dir}`}
+              style={{ width: 640, height: 853 }}
+            >
+              <PageBody
+                article={article}
+                page={outgoing.page}
+                total={total}
+                prev={prev}
+                next={next}
+                onJump={onJump}
+              />
+            </div>
+          )}
         </div>
 
         {/* book base shadow */}
@@ -258,8 +281,11 @@ function PageBody({
 
 function CoverPage({ article }: { article: Article }) {
   return (
+    // h-full / w-full instead of absolute inset-0 — all page sub-types
+    // (cover / meta / body / end) now use the same positioning model so
+    // their rendered size is identical to the page-paper container.
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center gap-6 p-10"
+      className="relative flex h-full w-full flex-col items-center justify-center gap-6 p-10"
       style={{
         background: `linear-gradient(135deg, ${article.cover.from} 0%, ${article.cover.to} 100%)`,
       }}
